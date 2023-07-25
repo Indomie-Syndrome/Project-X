@@ -8,7 +8,8 @@ public class PlayerMovement : MonoBehaviour
 {
 
     private CharacterController characterController;
-    private Vector3 playerVelocity;
+    
+    private bool shouldCrouch => inputManager.GetCrouch() == 1 && !inCrouchAnimation && characterController.isGrounded; 
 
     private enum MovementState
     {
@@ -23,6 +24,7 @@ public class PlayerMovement : MonoBehaviour
     [Header("External Scripts")]
     [SerializeField] private InputManager inputManager;
     [SerializeField] private Camera playerCamera;
+    [SerializeField] private Transform playerModel;
 
 
     [Header("Walking Variables")]
@@ -33,12 +35,26 @@ public class PlayerMovement : MonoBehaviour
     public float defaultFov = 60;
     public float zoomDuration = 2;
     public float sprintFOV = 70;
+    [SerializeField][Range(0f, 0.5f)] private float moveSmoothTime = 0.3f;
     private bool isGrounded;
+    // ===============================
+    private Vector3 playerVelocity;
+    private Vector2 curVelocityRef = Vector2.zero;
+    private Vector2 currentDir = Vector2.zero;
 
 
     [Header("Mouse")]
     public float mouseSensitivity = 50f;
-    
+
+
+    [Header("Crouch")]
+    [SerializeField] private float crouchSpeed = 3;
+    [SerializeField] private float crouchDuration = 0.25f;
+    [SerializeField] private Vector3 crouchingCenter = new Vector3(1,0.6f,1);
+    [SerializeField] private Vector3 standingCenter = new Vector3(1, 1, 1);
+    private bool isCrouching;
+    private bool inCrouchAnimation;
+
 
     private float rotationX = 0f;
 
@@ -59,6 +75,7 @@ public class PlayerMovement : MonoBehaviour
     {
         isGrounded = characterController.isGrounded;
         MovePlayer();
+        HandleCrouch();
 
 
     }
@@ -72,20 +89,26 @@ public class PlayerMovement : MonoBehaviour
     private void MovePlayer()
     {
         Vector2 playerInput = inputManager.GetPlayerMovement();
-        Vector3 moveDir = new Vector3(playerInput.x, 0f, playerInput.y);
-        
+        currentDir = Vector2.SmoothDamp(currentDir, playerInput, ref curVelocityRef, moveSmoothTime);
+        float targetSpeed;
+        Vector3 moveDir = new Vector3(currentDir.x, 0f, currentDir.y);
 
         if (inputManager.GetSprint() == 0)
         {
             ZoomCamera(defaultFov);
-            characterController.Move(transform.TransformDirection(moveDir) * walkingSpeed * Time.deltaTime);
+            targetSpeed = isCrouching ? crouchSpeed : walkingSpeed;
+            characterController.Move(transform.TransformDirection(moveDir) * targetSpeed * Time.deltaTime);
         }
 
         // handle sprinting
         else if(inputManager.GetSprint() == 1 && (playerInput.y != 0 || playerInput.x !=0 ) )
         {
-            ZoomCamera(sprintFOV);
-            characterController.Move(transform.TransformDirection(moveDir) * sprintSpeed * Time.deltaTime);
+            if (!isCrouching)
+            {
+                ZoomCamera(sprintFOV);
+            }
+            targetSpeed = isCrouching ? crouchSpeed : sprintSpeed;
+            characterController.Move(transform.TransformDirection(moveDir) * targetSpeed * Time.deltaTime);
         }
 
         playerVelocity.y -= gravity * Time.deltaTime;
@@ -118,5 +141,41 @@ public class PlayerMovement : MonoBehaviour
     {
         float angle = Mathf.Abs((defaultFov / zoomMultiplier) - defaultFov);
         playerCamera.fieldOfView = Mathf.MoveTowards(playerCamera.fieldOfView, target, angle / zoomDuration * Time.deltaTime);
+    }
+
+    void HandleCrouch()
+    {
+        if(shouldCrouch)
+        {
+            StartCoroutine(CrouchStand());
+        }
+    }
+
+    private IEnumerator CrouchStand()
+    {
+        // hindari clipping jika ada sesuatu di atas
+        if(isCrouching && Physics.BoxCast(playerCamera.transform.position, new Vector3(0.5f,0.5f,0.5f), Vector3.up, Quaternion.Euler(0,0,0),0.5f))
+        {
+
+            yield break;
+        }
+
+        inCrouchAnimation = true;
+        float timelapsed = 0;
+        Vector3 targetCenter = isCrouching ? standingCenter : crouchingCenter;
+        Vector3 currentCenter = transform.localScale;
+
+        while(timelapsed < crouchDuration)
+        {
+            transform.localScale = Vector3.Lerp(currentCenter, targetCenter, timelapsed / crouchDuration);
+            timelapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        transform.localScale = targetCenter;
+
+        isCrouching = !isCrouching;
+
+        inCrouchAnimation = false;
     }
 }
