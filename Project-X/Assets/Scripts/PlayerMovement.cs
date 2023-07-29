@@ -1,5 +1,7 @@
+using Cinemachine;
 using System.Collections;
 using System.Collections.Generic;
+using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.Rendering.Universal;
@@ -8,24 +10,23 @@ public class PlayerMovement : MonoBehaviour
 {
 
     private CharacterController characterController;
-    
-    private bool shouldCrouch => inputManager.GetCrouch() == 1 && !inCrouchAnimation && characterController.isGrounded; 
+    public bool CanMove { get; private set; } = true;
 
-    private enum MovementState
-    {
-        walking,
-        sprinting,
-        crouching,
-        air
-    }
-
-    private MovementState movementState;
+    private bool shouldCrouch => inputManager.GetCrouch() == 1 && !inCrouchAnimation && isGrounded && canCrouch; 
+    private bool isSprinting => canSprint && inputManager.GetSprint() == 1 && playerInput != Vector2.zero;
 
     [Header("External Scripts")]
     [SerializeField] private InputManager inputManager;
-    [SerializeField] private Camera playerCamera;
+    [SerializeField] private CinemachineVirtualCamera playerCamera;
     [SerializeField] private Transform playerModel;
 
+    [Header("Movement Boolean")]
+    [SerializeField] private bool canSprint = true;
+    [SerializeField] private bool canCrouch = true;
+    [SerializeField] private bool useStamina = true;
+    [SerializeField] private bool useFootsteps = true;
+    [SerializeField] private bool useGravity = true;
+    [SerializeField] private bool useMouse = true;
 
     [Header("Walking Variables")]
     public float walkingSpeed;
@@ -37,14 +38,28 @@ public class PlayerMovement : MonoBehaviour
     public float sprintFOV = 70;
     [SerializeField][Range(0f, 0.5f)] private float moveSmoothTime = 0.3f;
     private bool isGrounded;
-    // ===============================
-    private Vector3 playerVelocity;
+
+    // Player Movement reference
+    private Vector3 playerMoveDir;
+
+    // For smoothing motion
     private Vector2 curVelocityRef = Vector2.zero;
     private Vector2 currentDir = Vector2.zero;
 
+    private Vector2 playerInput => inputManager.GetPlayerMovement();
+
+    [Header("Sprint Stamina")]
+    [SerializeField] private float maxStamina = 100f;
+    [SerializeField] private float staminaUse = 5;
+    [SerializeField] private float timeBeforeRegenerate = 5;
+    [SerializeField] private float staminaIncrement = 3;
+    [SerializeField] private float timeIncrement = 2;
+    private float currentStamina;
+    private Coroutine regenerateStamina;
 
     [Header("Mouse")]
     public float mouseSensitivity = 50f;
+    private float rotationX = 0f;
 
 
     [Header("Crouch")]
@@ -56,7 +71,17 @@ public class PlayerMovement : MonoBehaviour
     private bool inCrouchAnimation;
 
 
-    private float rotationX = 0f;
+    [Header("Footsteps")]
+    [SerializeField] private float baseStepsSpeed = 0.5f;
+    [SerializeField] private float crouchStepMultplier = 1.5f;
+    [SerializeField] private float sprintStepMultiplier = 0.6f;
+    [SerializeField] private AudioSource footStepsAudioSource = default;
+    [SerializeField] private AudioClip[] woodClips =default;
+    private float footStepTimer = 0;
+    private float GetCurrentOffest => isCrouching ? baseStepsSpeed * crouchStepMultplier : isSprinting ? baseStepsSpeed * sprintStepMultiplier : baseStepsSpeed;
+
+
+    
 
 
 
@@ -64,60 +89,70 @@ public class PlayerMovement : MonoBehaviour
     void Start()
     {
         characterController = GetComponent<CharacterController>();
-        inputManager.OnEnable();
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible= false;
-        playerCamera.fieldOfView = defaultFov;
+        playerCamera.m_Lens.FieldOfView = defaultFov;
+        currentStamina = maxStamina;
     }
 
     // Update is called once per frame
     void Update()
     {
         isGrounded = characterController.isGrounded;
-        MovePlayer();
-        HandleCrouch();
+        if(CanMove)
+        {
+            HandleMovementInput();
+
+            if(canCrouch) HandleCrouch();
+
+            if (useStamina) HandleStamina();
+
+            ApplyFinalMovement();
+        }
+        Debug.Log(currentStamina);
+
 
 
     }
     void LateUpdate()
     {
-        CameraLook();
+        if(useMouse)
+        {
+            CameraLook();
+        }
     }
 
 
 
-    private void MovePlayer()
+    private void HandleMovementInput()
     {
-        Vector2 playerInput = inputManager.GetPlayerMovement();
-        currentDir = Vector2.SmoothDamp(currentDir, playerInput, ref curVelocityRef, moveSmoothTime);
-        float targetSpeed;
-        Vector3 moveDir = new Vector3(currentDir.x, 0f, currentDir.y);
+        currentDir = Vector2.SmoothDamp(currentDir, playerInput, ref curVelocityRef, moveSmoothTime); // damping movement
+        float targetSpeed = isCrouching ? crouchSpeed : isSprinting ? sprintSpeed : walkingSpeed;
+        
+        float movementDirY = playerMoveDir.y;
+        playerMoveDir = (transform.TransformDirection(Vector3.forward) * currentDir.y * targetSpeed) + (transform.TransformDirection(Vector3.right) * currentDir.x * targetSpeed) ; 
+        playerMoveDir.y = movementDirY;
 
-        if (inputManager.GetSprint() == 0)
-        {
-            ZoomCamera(defaultFov);
-            targetSpeed = isCrouching ? crouchSpeed : walkingSpeed;
-            characterController.Move(transform.TransformDirection(moveDir) * targetSpeed * Time.deltaTime);
-        }
+    }
 
-        // handle sprinting
-        else if(inputManager.GetSprint() == 1 && (playerInput.y != 0 || playerInput.x !=0 ) )
+    private void ApplyFinalMovement()
+    {
+        if (useGravity)
         {
-            if (!isCrouching)
+            playerMoveDir.y -= gravity * Time.deltaTime;
+            if (isGrounded && playerMoveDir.y < 0)
             {
-                ZoomCamera(sprintFOV);
+                playerMoveDir.y = -2f;
             }
-            targetSpeed = isCrouching ? crouchSpeed : sprintSpeed;
-            characterController.Move(transform.TransformDirection(moveDir) * targetSpeed * Time.deltaTime);
         }
+        else playerMoveDir.y = 0;
+        
 
-        playerVelocity.y -= gravity * Time.deltaTime;
-        if (isGrounded && playerVelocity.y < 0)
-        {
-            playerVelocity.y = -2f;
-        }
-        characterController.Move(playerVelocity * Time.deltaTime);
+        // handle camera zoom
+        if (isSprinting) ZoomCamera(sprintFOV);
+        else ZoomCamera(defaultFov);
 
+        characterController.Move(playerMoveDir * Time.deltaTime);
     }
 
 
@@ -140,7 +175,7 @@ public class PlayerMovement : MonoBehaviour
     void ZoomCamera(float target)
     {
         float angle = Mathf.Abs((defaultFov / zoomMultiplier) - defaultFov);
-        playerCamera.fieldOfView = Mathf.MoveTowards(playerCamera.fieldOfView, target, angle / zoomDuration * Time.deltaTime);
+        playerCamera.m_Lens.FieldOfView = Mathf.MoveTowards(playerCamera.m_Lens.FieldOfView, target, angle / zoomDuration * Time.deltaTime);
     }
 
     void HandleCrouch()
@@ -178,4 +213,83 @@ public class PlayerMovement : MonoBehaviour
 
         inCrouchAnimation = false;
     }
+
+    private void HandleStamina()
+    {
+        if(isSprinting && !isCrouching)
+        {
+            if (regenerateStamina != null)
+            {
+                StopCoroutine(regenerateStamina);
+                regenerateStamina = null;
+            }
+            currentStamina -= staminaUse * Time.deltaTime;
+            if (currentStamina <= 0)
+            {
+                currentStamina = 0;
+                canSprint = false;
+            }
+        }
+
+        if(!isSprinting && currentStamina < maxStamina && regenerateStamina == null)
+        {
+            regenerateStamina = StartCoroutine(RegenerateStamina());
+        }
+        
+    }
+
+    private IEnumerator RegenerateStamina()
+    {
+        yield return new WaitForSeconds(timeBeforeRegenerate);
+        WaitForSeconds timeToWait = new WaitForSeconds(timeIncrement);
+
+        while (currentStamina < maxStamina)
+        {
+            if(currentStamina > 0)
+            {
+                canSprint = true;
+            }
+
+            
+            if(currentStamina > maxStamina)
+            {
+                currentStamina = maxStamina;
+            }
+
+            currentStamina += staminaIncrement;
+
+            yield return timeToWait;
+        }
+
+        regenerateStamina = null;
+    }
+
+
+    // belum siap
+    private void HandleFootsteps()
+    {
+        if (!isGrounded) return;
+        if (playerInput == Vector2.zero) return;
+
+        footStepTimer = Time.deltaTime;
+        if(footStepTimer == 0) 
+        {
+            if (Physics.Raycast(playerCamera.transform.position, Vector3.down,out RaycastHit hit, 3f))
+            {
+                switch(hit.collider.tag)
+                {
+                    case "Footsteps/Wood":
+                        break;
+                    default: 
+                        break;
+                }
+            }
+        }
+    }
+
+    public void MouseControl()
+    {
+        useMouse = !useMouse;
+    }
+
 }

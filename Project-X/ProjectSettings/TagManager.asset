@@ -5,6 +5,7 @@ TagManager:
   serializedVersion: 2
   tags:
   - CinemachineTarget
+  - Footsteps/Wood
   layers:
   - Default
   - TransparentFX
