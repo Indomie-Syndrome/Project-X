@@ -25,6 +25,8 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private bool canCrouch = true;
     [SerializeField] private bool useStamina = true;
     [SerializeField] private bool useFootsteps = true;
+    [SerializeField] private bool useGravity = true;
+    [SerializeField] private bool useMouse = true;
 
     [Header("Walking Variables")]
     public float walkingSpeed;
@@ -114,7 +116,10 @@ public class PlayerMovement : MonoBehaviour
     }
     void LateUpdate()
     {
-        CameraLook();
+        if(useMouse)
+        {
+            CameraLook();
+        }
     }
 
 
@@ -132,11 +137,16 @@ public class PlayerMovement : MonoBehaviour
 
     private void ApplyFinalMovement()
     {
-        playerMoveDir.y -= gravity * Time.deltaTime;
-        if (isGrounded && playerMoveDir.y < 0)
+        if (useGravity)
         {
-            playerMoveDir.y = -2f;
+            playerMoveDir.y -= gravity * Time.deltaTime;
+            if (isGrounded && playerMoveDir.y < 0)
+            {
+                playerMoveDir.y = -2f;
+            }
         }
+        else playerMoveDir.y = 0;
+        
 
         // handle camera zoom
         if (isSprinting) ZoomCamera(sprintFOV);
@@ -254,6 +264,8 @@ public class PlayerMovement : MonoBehaviour
         regenerateStamina = null;
     }
 
+
+    // belum siap
     private void HandleFootsteps()
     {
         if (!isGrounded) return;
@@ -275,6 +287,9 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
-
+    public void MouseControl()
+    {
+        useMouse = !useMouse;
+    }
 
 }
