@@ -47,5 +47,15 @@ public class InputManager : MonoBehaviour
     {
         return controllerInput.Player.Sprint.ReadValue<float>();
     }
+        
+    public bool GetFlash()
+    {
+        return controllerInput.Player.Flashlight.ReadValue<float>() == 1 && controllerInput.Player.Flashlight.triggered;
+    }
+
+    public bool GetInteract()
+    {
+        return controllerInput.Player.Interact.ReadValue<float>() == 1 && controllerInput.Player.Interact.triggered;
+    }
 
 }
