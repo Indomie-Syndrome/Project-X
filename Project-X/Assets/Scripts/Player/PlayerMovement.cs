@@ -18,7 +18,7 @@ public class PlayerMovement : MonoBehaviour
     [Header("External Scripts")]
     [SerializeField] private InputManager inputManager;
     [SerializeField] private CinemachineVirtualCamera playerCamera;
-    [SerializeField] private Transform playerModel;
+    [SerializeField] private Transform flashLight;
 
     [Header("Movement Boolean")]
     [SerializeField] private bool canSprint = true;
@@ -27,6 +27,7 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private bool useFootsteps = true;
     [SerializeField] private bool useGravity = true;
     [SerializeField] private bool useMouse = true;
+
 
     [Header("Walking Variables")]
     public float walkingSpeed;
@@ -79,6 +80,7 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private AudioClip[] woodClips =default;
     private float footStepTimer = 0;
     private float GetCurrentOffest => isCrouching ? baseStepsSpeed * crouchStepMultplier : isSprinting ? baseStepsSpeed * sprintStepMultiplier : baseStepsSpeed;
+    private float GetVolumeStep => isCrouching ? 0.5f : 1f;
 
 
     
@@ -107,9 +109,11 @@ public class PlayerMovement : MonoBehaviour
 
             if (useStamina) HandleStamina();
 
+            if(useFootsteps) HandleFootsteps();
+
             ApplyFinalMovement();
         }
-        Debug.Log(currentStamina);
+        // Debug.Log(currentStamina);
 
 
 
@@ -164,6 +168,7 @@ public class PlayerMovement : MonoBehaviour
 
         // rotate camera
         playerCamera.transform.localRotation = Quaternion.Euler(rotationX,0,0) ;
+        flashLight.transform.localRotation = Quaternion.Euler(rotationX, 0, 0);
 
         // rotate player
         transform.Rotate(Vector3.up * (mouseDir.x * Time.deltaTime) * mouseSensitivity);
@@ -271,19 +276,22 @@ public class PlayerMovement : MonoBehaviour
         if (!isGrounded) return;
         if (playerInput == Vector2.zero) return;
 
-        footStepTimer = Time.deltaTime;
-        if(footStepTimer == 0) 
+        footStepTimer -= Time.deltaTime;
+        if(footStepTimer <= 0) 
         {
-            if (Physics.Raycast(playerCamera.transform.position, Vector3.down,out RaycastHit hit, 3f))
+            if (Physics.Raycast(playerCamera.transform.position, Vector3.down, out RaycastHit hit, 3f))
             {
-                switch(hit.collider.tag)
+                switch (hit.collider.tag)
                 {
                     case "Footsteps/Wood":
+                        footStepsAudioSource.PlayOneShot(woodClips[Random.Range(0, woodClips.Length - 1)], GetVolumeStep);
                         break;
-                    default: 
+                    default:
+                        footStepsAudioSource.PlayOneShot(woodClips[Random.Range(0, woodClips.Length - 1)], GetVolumeStep);
                         break;
                 }
             }
+            footStepTimer = GetCurrentOffest;
         }
     }
 
